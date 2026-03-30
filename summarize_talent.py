@@ -28,7 +28,7 @@ load_dotenv()
 # ---- 設定 ----
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SOURCE_CHANNEL_ID = os.environ.get("SOURCE_CHANNEL_ID", "C0A8WB50TDH")
-OUTPUT_CHANNEL_ID = os.environ.get("OUTPUT_CHANNEL_ID", "#itpro_gdgroup_cp")
+OUTPUT_CHANNEL_ID = os.environ.get("OUTPUT_CHANNEL_ID", "#週5人材")
 MODE = os.environ.get("MODE", "daytime")  # daytime or nighttime
 
 # ---- フィルタキーワード ----

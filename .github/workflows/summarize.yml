@@ -48,6 +48,6 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SOURCE_CHANNEL_ID: ${{ vars.SOURCE_CHANNEL_ID || 'C0A8WB50TDH' }}
-          OUTPUT_CHANNEL_ID: ${{ vars.OUTPUT_CHANNEL_ID || '#itpro_gdgroup_cp' }}
+          OUTPUT_CHANNEL_ID: ${{ vars.OUTPUT_CHANNEL_ID || '#週5人材' }}
           MODE: ${{ steps.mode.outputs.MODE }}
         run: python summarize_talent.py

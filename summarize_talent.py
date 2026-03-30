@@ -39,15 +39,6 @@ def remove_code_blocks(text: str) -> str:
     return text.strip()
 
 
-def normalize_text(text: str) -> str:
-    """改行を正規化（連続する改行を1つに）"""
-    # 3つ以上の改行を2つに
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    # 各行の前後の空白を削除
-    lines = [line.strip() for line in text.split("\n")]
-    return "\n".join(lines)
-
-
 def is_full_time_talent(text: str) -> bool:
     """
     【稼働可能時間数】が「160時間」または「100%」を含むかチェック
@@ -71,7 +62,7 @@ def is_full_time_talent(text: str) -> bool:
 def extract_talent_blocks(text: str) -> list[str]:
     """
     メッセージから人材情報ブロックを抽出する
-    <推薦用>> から始まり、次の <推薦用>> または末尾まで
+    <<推薦用>> から始まり、次の <<推薦用>> または末尾まで
     """
     # コードブロックを除去
     text = remove_code_blocks(text)
@@ -79,8 +70,8 @@ def extract_talent_blocks(text: str) -> list[str]:
     if not text:
         return []
     
-    # <推薦用>> で分割
-    blocks = re.split(r"<推薦用>>", text)
+    # <<推薦用>> で分割（<が1つでも2つでも対応）
+    blocks = re.split(r"<{1,2}推薦用>{1,2}", text)
     
     talent_blocks = []
     for block in blocks[1:]:  # 最初の空要素をスキップ
@@ -88,7 +79,7 @@ def extract_talent_blocks(text: str) -> list[str]:
         if block and "【氏名】" in block:
             talent_blocks.append(block)
     
-    # <推薦用>> がない場合、【氏名】で始まるブロックを探す
+    # <<推薦用>> がない場合、【氏名】で始まるブロックを探す
     if not talent_blocks and "【氏名】" in text:
         # 【氏名】で分割して各ブロックを取得
         blocks = re.split(r"(?=【氏名】)", text)
@@ -177,7 +168,7 @@ def format_summary(filtered: list[str], date_label: str, time_desc: str) -> str:
         formatted = format_talent_block(talent)
         lines.append(f"【{i}人目】")
         lines.append(formatted)
-        lines.append("")  # 人材間は2行空ける（appendで1行 + ここで1行）
+        lines.append("")  # 人材間は2行空ける
         lines.append("")
 
     return "\n".join(lines)

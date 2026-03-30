@@ -2,8 +2,8 @@ name: Slack Talent Summary
 
 on:
   schedule:
-    # 13:15 JST = 4:15 UTC (daytime mode)
-    - cron: '15 4 * * *'
+    # 15:00 JST = 6:00 UTC (daytime mode)
+    - cron: '0 6 * * *'
     # 9:00 JST = 0:00 UTC (nighttime mode)
     - cron: '0 0 * * *'
   workflow_dispatch:
@@ -39,7 +39,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "MODE=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.schedule }}" = "15 4 * * *" ]; then
+          elif [ "${{ github.event.schedule }}" = "0 6 * * *" ]; then
             echo "MODE=daytime" >> $GITHUB_OUTPUT
           else
             echo "MODE=nighttime" >> $GITHUB_OUTPUT

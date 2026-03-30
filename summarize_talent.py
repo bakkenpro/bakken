@@ -2,8 +2,8 @@
 Slack チャンネルから週5稼働/稼働率100%の人材情報を時間帯別に要約するスクリプト
 
 実行モード:
-  MODE=daytime  : 0:00〜13:00 のメッセージを集計（毎日13:15に実行）
-  MODE=nighttime: 13:00〜24:00 のメッセージを集計（翌日9:00に実行）
+  MODE=daytime  : 9:00〜14:59 のメッセージを集計（毎日15:00に実行）
+  MODE=nighttime: 前日0:00〜当日8:59 のメッセージを集計（毎日9:00に実行）
   MODE=test     : 時間制限なし（デバッグ用）
 
 使い方:
@@ -64,21 +64,22 @@ def get_time_range() -> tuple[float | None, float | None, str, str]:
     戻り値: (oldest_ts, latest_ts, 対象日表示, モード説明)
     """
     now = datetime.now(JST)
+    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     if MODE == "test":
         return None, None, "全期間", "テストモード"
     elif MODE == "nighttime":
-        base = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        oldest = (base - timedelta(days=1)).replace(hour=13, minute=0, second=0)
-        latest = base
-        label = (base - timedelta(days=1)).strftime("%Y年%m月%d日")
-        desc = "13:00〜24:00"
+        # 9:00 実行: 前日 0:00 〜 当日 8:59
+        oldest = today - timedelta(days=1)  # 前日 0:00
+        latest = today.replace(hour=8, minute=59, second=59)  # 当日 8:59
+        label = (today - timedelta(days=1)).strftime("%Y年%m月%d日") + "〜" + today.strftime("%m月%d日")
+        desc = "前日0:00〜当日8:59"
     else:
-        base = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        oldest = base
-        latest = base.replace(hour=13, minute=0, second=0)
-        label = base.strftime("%Y年%m月%d日")
-        desc = "0:00〜13:00"
+        # 15:00 実行: 当日 9:00 〜 14:59
+        oldest = today.replace(hour=9, minute=0, second=0)  # 当日 9:00
+        latest = today.replace(hour=14, minute=59, second=59)  # 当日 14:59
+        label = today.strftime("%Y年%m月%d日")
+        desc = "9:00〜14:59"
 
     return oldest.timestamp(), latest.timestamp(), label, desc
 

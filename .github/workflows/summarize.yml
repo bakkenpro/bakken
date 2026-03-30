@@ -1,0 +1,53 @@
+name: Slack Talent Summary
+
+on:
+  schedule:
+    # 13:15 JST = 4:15 UTC (daytime mode)
+    - cron: '15 4 * * *'
+    # 9:00 JST = 0:00 UTC (nighttime mode)
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Execution mode'
+        required: true
+        default: 'daytime'
+        type: choice
+        options:
+          - daytime
+          - nighttime
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Determine mode from schedule
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "MODE=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "15 4 * * *" ]; then
+            echo "MODE=daytime" >> $GITHUB_OUTPUT
+          else
+            echo "MODE=nighttime" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run summarize script
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SOURCE_CHANNEL_ID: ${{ vars.SOURCE_CHANNEL_ID || 'C0A8WB50TDH' }}
+          OUTPUT_CHANNEL_ID: ${{ vars.OUTPUT_CHANNEL_ID || '#週5人材' }}
+          MODE: ${{ steps.mode.outputs.MODE }}
+        run: python summarize_talent.py

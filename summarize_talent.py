@@ -31,12 +31,6 @@ SOURCE_CHANNEL_ID = os.environ.get("SOURCE_CHANNEL_ID", "C0A8WB50TDH")
 OUTPUT_CHANNEL_ID = os.environ.get("OUTPUT_CHANNEL_ID", "#週5人材")
 MODE = os.environ.get("MODE", "daytime")  # daytime or nighttime
 
-# ---- フィルタキーワード ----
-KEYWORDS = [
-    "週5", "週５", "5日/週", "稼働率100", "100%稼働", "フルタイム",
-    "週5稼働", "週５稼働", "稼働率１００", "100％稼働",
-]
-
 
 def remove_code_blocks(text: str) -> str:
     """コードブロック（```...```）を除去する"""
@@ -45,12 +39,74 @@ def remove_code_blocks(text: str) -> str:
     return text.strip()
 
 
-def contains_keywords(text: str) -> bool:
-    """週5稼働/稼働率100%に関するキーワードが含まれるか確認"""
-    for kw in KEYWORDS:
-        if kw in text:
-            return True
+def normalize_text(text: str) -> str:
+    """改行を正規化（連続する改行を1つに）"""
+    # 3つ以上の改行を2つに
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    # 各行の前後の空白を削除
+    lines = [line.strip() for line in text.split("\n")]
+    return "\n".join(lines)
+
+
+def is_full_time_talent(text: str) -> bool:
+    """
+    【稼働可能時間数】が「160時間」または「100%」を含むかチェック
+    """
+    # 【稼働可能時間数】の行を探す
+    match = re.search(r"【稼働可能時間数】(.+?)(?:\n|$)", text)
+    if not match:
+        return False
+    
+    work_hours = match.group(1)
+    
+    # 160時間 or 100% をチェック（全角/半角両対応）
+    if re.search(r"160\s*時間|１６０\s*時間", work_hours):
+        return True
+    if re.search(r"100\s*%|100\s*％|１００\s*%|１００\s*％", work_hours):
+        return True
+    
     return False
+
+
+def extract_talent_blocks(text: str) -> list[str]:
+    """
+    メッセージから人材情報ブロックを抽出する
+    <推薦用>> から始まり、次の <推薦用>> または末尾まで
+    """
+    # コードブロックを除去
+    text = remove_code_blocks(text)
+    
+    if not text:
+        return []
+    
+    # <推薦用>> で分割
+    blocks = re.split(r"<推薦用>>", text)
+    
+    talent_blocks = []
+    for block in blocks[1:]:  # 最初の空要素をスキップ
+        block = block.strip()
+        if block and "【氏名】" in block:
+            talent_blocks.append(block)
+    
+    # <推薦用>> がない場合、【氏名】で始まるブロックを探す
+    if not talent_blocks and "【氏名】" in text:
+        # 【氏名】で分割して各ブロックを取得
+        blocks = re.split(r"(?=【氏名】)", text)
+        for block in blocks:
+            block = block.strip()
+            if block and "【氏名】" in block:
+                talent_blocks.append(block)
+    
+    return talent_blocks
+
+
+def format_talent_block(block: str) -> str:
+    """人材情報ブロックのフォーマットを整える（改行を1つに）"""
+    # 連続する改行を1つに
+    block = re.sub(r"\n{2,}", "\n", block)
+    # 各行の前後の空白を削除
+    lines = [line.strip() for line in block.split("\n") if line.strip()]
+    return "\n".join(lines)
 
 
 def get_time_range() -> tuple[float, float, str, str]:
@@ -114,9 +170,14 @@ def format_summary(filtered: list[str], date_label: str, time_desc: str) -> str:
     if not filtered:
         return f"{header}\n\n該当する情報はありませんでした。"
 
-    lines = [header, f"（{len(filtered)}件）", ""]
-    for i, msg in enumerate(filtered, 1):
-        lines.append(f"{i}. {msg}")
+    lines = [header, f"（{len(filtered)}名）", ""]
+    
+    for i, talent in enumerate(filtered, 1):
+        # 各人材情報の前に番号を付ける
+        formatted = format_talent_block(talent)
+        lines.append(f"【{i}人目】")
+        lines.append(formatted)
+        lines.append("")  # 人材間は2行空ける（appendで1行 + ここで1行）
         lines.append("")
 
     return "\n".join(lines)
@@ -138,17 +199,26 @@ def main():
     messages = fetch_messages(client, SOURCE_CHANNEL_ID, oldest_ts, latest_ts)
     print(f"  {len(messages)} 件のメッセージを取得しました。")
 
-    # フィルタリング
+    # 人材情報を抽出・フィルタリング
     filtered = []
+    seen = set()  # 重複チェック用
+    
     for msg in messages:
         text = msg.get("text", "")
-        clean_text = remove_code_blocks(text)
-        if not clean_text:
-            continue
-        if contains_keywords(clean_text):
-            filtered.append(clean_text)
+        talent_blocks = extract_talent_blocks(text)
+        
+        for block in talent_blocks:
+            # 【稼働可能時間数】が160時間/100%かチェック
+            if is_full_time_talent(block):
+                # 【氏名】で重複チェック
+                name_match = re.search(r"【氏名】(.+?)(?:\n|$)", block)
+                if name_match:
+                    name = name_match.group(1).strip()
+                    if name not in seen:
+                        seen.add(name)
+                        filtered.append(block)
 
-    print(f"  条件に合致: {len(filtered)} 件")
+    print(f"  条件に合致: {len(filtered)} 名")
 
     # 要約テキスト生成
     summary = format_summary(filtered, date_label, time_desc)

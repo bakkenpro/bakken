@@ -18,7 +18,7 @@ Slack チャンネルから週5稼働/稼働率100%の人材情報を時間帯�
 
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
@@ -30,6 +30,9 @@ SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SOURCE_CHANNEL_ID = os.environ.get("SOURCE_CHANNEL_ID", "C0A8WB50TDH")
 OUTPUT_CHANNEL_ID = os.environ.get("OUTPUT_CHANNEL_ID", "#週5人材")
 MODE = os.environ.get("MODE", "daytime")  # daytime or nighttime
+
+# 日本時間 (JST = UTC+9)
+JST = timezone(timedelta(hours=9))
 
 
 def remove_code_blocks(text: str) -> str:
@@ -102,10 +105,11 @@ def format_talent_block(block: str) -> str:
 
 def get_time_range() -> tuple[float, float, str, str]:
     """
-    実行モードに応じて対象時間範囲を返す。
+    実行モードに応じて対象時間範囲を返す（日本時間基準）。
     戻り値: (oldest_ts, latest_ts, 対象日表示, モード説明)
     """
-    now = datetime.now()
+    # 現在の日本時間
+    now = datetime.now(JST)
 
     if MODE == "nighttime":
         # 9:00 実行: 前日13:00〜24:00
@@ -186,6 +190,7 @@ def main():
 
     print(f"モード: {MODE} / 対象: {date_label} {time_desc}")
     print(f"チャンネル {SOURCE_CHANNEL_ID} からメッセージを取得中...")
+    print(f"  時間範囲: {datetime.fromtimestamp(oldest_ts, JST)} 〜 {datetime.fromtimestamp(latest_ts, JST)}")
 
     messages = fetch_messages(client, SOURCE_CHANNEL_ID, oldest_ts, latest_ts)
     print(f"  {len(messages)} 件のメッセージを取得しました。")

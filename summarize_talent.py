@@ -4,16 +4,18 @@ Slack チャンネルから週5稼働/稼働率100%の人材情報を時間帯�
 実行モード:
   MODE=daytime  : 0:00〜13:00 のメッセージを集計（毎日13:15に実行）
   MODE=nighttime: 13:00〜24:00 のメッセージを集計（翌日9:00に実行）
+  MODE=test     : 時間制限なし（デバッグ用）
 
 使い方:
   MODE=daytime python summarize_talent.py
   MODE=nighttime python summarize_talent.py
+  MODE=test python summarize_talent.py
 
 環境変数:
   SLACK_BOT_TOKEN   - Slack Bot Token (xoxb-...)
   SOURCE_CHANNEL_ID - 読み取り対象チャンネルID
   OUTPUT_CHANNEL_ID - 要約を投稿するチャンネルID
-  MODE              - daytime または nighttime（デフォルト: daytime）
+  MODE              - daytime / nighttime / test（デフォルト: daytime）
 """
 
 import os
@@ -29,7 +31,7 @@ load_dotenv()
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
 SOURCE_CHANNEL_ID = os.environ.get("SOURCE_CHANNEL_ID", "C0A8WB50TDH")
 OUTPUT_CHANNEL_ID = os.environ.get("OUTPUT_CHANNEL_ID", "#週5人材")
-MODE = os.environ.get("MODE", "daytime")  # daytime or nighttime
+MODE = os.environ.get("MODE", "daytime")  # daytime / nighttime / test
 
 # 日本時間 (JST = UTC+9)
 JST = timezone(timedelta(hours=9))
@@ -103,7 +105,7 @@ def format_talent_block(block: str) -> str:
     return "\n".join(lines)
 
 
-def get_time_range() -> tuple[float, float, str, str]:
+def get_time_range() -> tuple[float | None, float | None, str, str]:
     """
     実行モードに応じて対象時間範囲を返す（日本時間基準）。
     戻り値: (oldest_ts, latest_ts, 対象日表示, モード説明)
@@ -111,7 +113,10 @@ def get_time_range() -> tuple[float, float, str, str]:
     # 現在の日本時間
     now = datetime.now(JST)
 
-    if MODE == "nighttime":
+    if MODE == "test":
+        # テストモード: 時間制限なし
+        return None, None, "全期間", "テストモード"
+    elif MODE == "nighttime":
         # 9:00 実行: 前日13:00〜24:00
         base = now.replace(hour=0, minute=0, second=0, microsecond=0)
         oldest = (base - timedelta(days=1)).replace(hour=13, minute=0, second=0)
@@ -129,20 +134,25 @@ def get_time_range() -> tuple[float, float, str, str]:
     return oldest.timestamp(), latest.timestamp(), label, desc
 
 
-def fetch_messages(client: WebClient, channel_id: str, oldest: float, latest: float) -> list[dict]:
+def fetch_messages(client: WebClient, channel_id: str, oldest: float | None, latest: float | None) -> list[dict]:
     """指定チャンネルの指定時間範囲のメッセージを取得する"""
     messages = []
     cursor = None
 
     while True:
         try:
-            response = client.conversations_history(
-                channel=channel_id,
-                oldest=str(oldest),
-                latest=str(latest),
-                limit=200,
-                cursor=cursor,
-            )
+            params = {
+                "channel": channel_id,
+                "limit": 200,
+            }
+            if oldest is not None:
+                params["oldest"] = str(oldest)
+            if latest is not None:
+                params["latest"] = str(latest)
+            if cursor:
+                params["cursor"] = cursor
+            
+            response = client.conversations_history(**params)
             messages.extend(response["messages"])
 
             if not response.get("has_more"):
@@ -190,18 +200,30 @@ def main():
 
     print(f"モード: {MODE} / 対象: {date_label} {time_desc}")
     print(f"チャンネル {SOURCE_CHANNEL_ID} からメッセージを取得中...")
-    print(f"  時間範囲: {datetime.fromtimestamp(oldest_ts, JST)} 〜 {datetime.fromtimestamp(latest_ts, JST)}")
+    if oldest_ts and latest_ts:
+        print(f"  時間範囲: {datetime.fromtimestamp(oldest_ts, JST)} 〜 {datetime.fromtimestamp(latest_ts, JST)}")
+    else:
+        print("  時間範囲: 制限なし（全メッセージ）")
 
     messages = fetch_messages(client, SOURCE_CHANNEL_ID, oldest_ts, latest_ts)
     print(f"  {len(messages)} 件のメッセージを取得しました。")
 
+    # デバッグ: 最初の数件のメッセージを表示
+    if MODE == "test" and messages:
+        print("\n[DEBUG] 最初のメッセージ（抜粋）:")
+        for i, msg in enumerate(messages[:3]):
+            text = msg.get("text", "")[:200]
+            print(f"  {i+1}. {text}...")
+
     # 人材情報を抽出・フィルタリング
     filtered = []
     seen = set()  # 重複チェック用
+    total_blocks = 0
     
     for msg in messages:
         text = msg.get("text", "")
         talent_blocks = extract_talent_blocks(text)
+        total_blocks += len(talent_blocks)
         
         for block in talent_blocks:
             # 【稼働可能時間数】が160時間/100%かチェック
@@ -214,6 +236,7 @@ def main():
                         seen.add(name)
                         filtered.append(block)
 
+    print(f"  抽出した人材ブロック: {total_blocks} 件")
     print(f"  条件に合致: {len(filtered)} 名")
 
     # 要約テキスト生成
@@ -222,8 +245,10 @@ def main():
     print(summary)
     print("=" * 60)
 
-    # Slackへの投稿
-    if OUTPUT_CHANNEL_ID:
+    # Slackへの投稿（テストモードでは投稿しない）
+    if MODE == "test":
+        print("\n[TEST MODE] Slackへの投稿はスキップしました。")
+    elif OUTPUT_CHANNEL_ID:
         try:
             client.chat_postMessage(
                 channel=OUTPUT_CHANNEL_ID,

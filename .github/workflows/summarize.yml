@@ -16,6 +16,7 @@ on:
         options:
           - daytime
           - nighttime
+          - test
 
 jobs:
   summarize:

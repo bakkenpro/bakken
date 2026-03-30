@@ -102,6 +102,8 @@ def fetch_messages(client: WebClient, channel_id: str, oldest: float, latest: fl
             print(f"[ERROR] メッセージ取得失敗: {e.response['error']}")
             break
 
+    # 時系列順（古い順）にソート
+    messages.sort(key=lambda m: float(m.get("ts", 0)))
     return messages
 
 

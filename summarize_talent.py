@@ -36,6 +36,12 @@ MODE = os.environ.get("MODE", "daytime")  # daytime / nighttime / test
 # 日本時間 (JST = UTC+9)
 JST = timezone(timedelta(hours=9))
 
+# ---- フィルタキーワード ----
+KEYWORDS = [
+    "週5", "週５", "5日/週", "稼働率100", "100%稼働", "フルタイム",
+    "週5稼働", "週５稼働", "稼働率１００", "100％稼働",
+]
+
 
 def remove_code_blocks(text: str) -> str:
     """コードブロック（```...```）を除去する"""
@@ -44,65 +50,12 @@ def remove_code_blocks(text: str) -> str:
     return text.strip()
 
 
-def is_full_time_talent(text: str) -> bool:
-    """
-    【稼働可能時間数】が「160時間」または「100%」を含むかチェック
-    """
-    # 【稼働可能時間数】の行を探す
-    match = re.search(r"【稼働可能時間数】(.+?)(?:\n|$)", text)
-    if not match:
-        return False
-    
-    work_hours = match.group(1)
-    
-    # 160時間 or 100% をチェック（全角/半角両対応）
-    if re.search(r"160\s*時間|１６０\s*時間", work_hours):
-        return True
-    if re.search(r"100\s*%|100\s*％|１００\s*%|１００\s*％", work_hours):
-        return True
-    
+def contains_keywords(text: str) -> bool:
+    """週5稼働/稼働率100%に関するキーワードが含まれるか確認"""
+    for kw in KEYWORDS:
+        if kw in text:
+            return True
     return False
-
-
-def extract_talent_blocks(text: str) -> list[str]:
-    """
-    メッセージから人材情報ブロックを抽出する
-    <<推薦用>> から始まり、次の <<推薦用>> または末尾まで
-    """
-    # コードブロックを除去
-    text = remove_code_blocks(text)
-    
-    if not text:
-        return []
-    
-    # <<推薦用>> で分割（<が1つでも2つでも対応）
-    blocks = re.split(r"<{1,2}推薦用>{1,2}", text)
-    
-    talent_blocks = []
-    for block in blocks[1:]:  # 最初の空要素をスキップ
-        block = block.strip()
-        if block and "【氏名】" in block:
-            talent_blocks.append(block)
-    
-    # <<推薦用>> がない場合、【氏名】で始まるブロックを探す
-    if not talent_blocks and "【氏名】" in text:
-        # 【氏名】で分割して各ブロックを取得
-        blocks = re.split(r"(?=【氏名】)", text)
-        for block in blocks:
-            block = block.strip()
-            if block and "【氏名】" in block:
-                talent_blocks.append(block)
-    
-    return talent_blocks
-
-
-def format_talent_block(block: str) -> str:
-    """人材情報ブロックのフォーマットを整える（改行を1つに）"""
-    # 連続する改行を1つに
-    block = re.sub(r"\n{2,}", "\n", block)
-    # 各行の前後の空白を削除
-    lines = [line.strip() for line in block.split("\n") if line.strip()]
-    return "\n".join(lines)
 
 
 def get_time_range() -> tuple[float | None, float | None, str, str]:
@@ -110,21 +63,17 @@ def get_time_range() -> tuple[float | None, float | None, str, str]:
     実行モードに応じて対象時間範囲を返す（日本時間基準）。
     戻り値: (oldest_ts, latest_ts, 対象日表示, モード説明)
     """
-    # 現在の日本時間
     now = datetime.now(JST)
 
     if MODE == "test":
-        # テストモード: 時間制限なし
         return None, None, "全期間", "テストモード"
     elif MODE == "nighttime":
-        # 9:00 実行: 前日13:00〜24:00
         base = now.replace(hour=0, minute=0, second=0, microsecond=0)
         oldest = (base - timedelta(days=1)).replace(hour=13, minute=0, second=0)
-        latest = base  # 前日24:00 = 当日0:00
+        latest = base
         label = (base - timedelta(days=1)).strftime("%Y年%m月%d日")
         desc = "13:00〜24:00"
     else:
-        # 13:15 実行: 当日0:00〜13:00
         base = now.replace(hour=0, minute=0, second=0, microsecond=0)
         oldest = base
         latest = base.replace(hour=13, minute=0, second=0)
@@ -151,7 +100,7 @@ def fetch_messages(client: WebClient, channel_id: str, oldest: float | None, lat
                 params["latest"] = str(latest)
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = client.conversations_history(**params)
             messages.extend(response["messages"])
 
@@ -175,14 +124,9 @@ def format_summary(filtered: list[str], date_label: str, time_desc: str) -> str:
     if not filtered:
         return f"{header}\n\n該当する情報はありませんでした。"
 
-    lines = [header, f"（{len(filtered)}名）", ""]
-    
-    for i, talent in enumerate(filtered, 1):
-        # 各人材情報の前に番号を付ける
-        formatted = format_talent_block(talent)
-        lines.append(f"【{i}人目】")
-        lines.append(formatted)
-        lines.append("")  # 人材間は2行空ける
+    lines = [header, f"（{len(filtered)}件）", ""]
+    for i, msg in enumerate(filtered, 1):
+        lines.append(f"{i}. {msg}")
         lines.append("")
 
     return "\n".join(lines)
@@ -208,36 +152,19 @@ def main():
     messages = fetch_messages(client, SOURCE_CHANNEL_ID, oldest_ts, latest_ts)
     print(f"  {len(messages)} 件のメッセージを取得しました。")
 
-    # デバッグ: 最初の数件のメッセージを表示
-    if MODE == "test" and messages:
-        print("\n[DEBUG] 最初のメッセージ（抜粋）:")
-        for i, msg in enumerate(messages[:3]):
-            text = msg.get("text", "")[:200]
-            print(f"  {i+1}. {text}...")
-
-    # 人材情報を抽出・フィルタリング
+    # フィルタリング
     filtered = []
-    seen = set()  # 重複チェック用
-    total_blocks = 0
-    
     for msg in messages:
         text = msg.get("text", "")
-        talent_blocks = extract_talent_blocks(text)
-        total_blocks += len(talent_blocks)
-        
-        for block in talent_blocks:
-            # 【稼働可能時間数】が160時間/100%かチェック
-            if is_full_time_talent(block):
-                # 【氏名】で重複チェック
-                name_match = re.search(r"【氏名】(.+?)(?:\n|$)", block)
-                if name_match:
-                    name = name_match.group(1).strip()
-                    if name not in seen:
-                        seen.add(name)
-                        filtered.append(block)
+        # コードブロックを除去
+        clean_text = remove_code_blocks(text)
+        if not clean_text:
+            continue
+        # キーワードチェック
+        if contains_keywords(clean_text):
+            filtered.append(clean_text)
 
-    print(f"  抽出した人材ブロック: {total_blocks} 件")
-    print(f"  条件に合致: {len(filtered)} 名")
+    print(f"  条件に合致: {len(filtered)} 件")
 
     # 要約テキスト生成
     summary = format_summary(filtered, date_label, time_desc)
@@ -245,7 +172,7 @@ def main():
     print(summary)
     print("=" * 60)
 
-    # Slackへの投稿（テストモードでは投稿しない）
+    # Slackへの投稿
     if MODE == "test":
         print("\n[TEST MODE] Slackへの投稿はスキップしました。")
     elif OUTPUT_CHANNEL_ID:
